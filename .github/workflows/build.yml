@@ -10,11 +10,26 @@ jobs:
           for z in $(find . -name "*.zip" -not -path "./.git/*"); do unzip -o "$z" -d "$(dirname "$z")"; done
           S=$(find . -name settings.gradle -not -path "./.git/*" | head -n1)
           echo "PROJECT_DIR=$(dirname "$S")" >> $GITHUB_ENV
-      - name: Fix code
+      - name: Remove graphicsMode
         run: |
-          for f in $(find . -name Engine.java -path "*ultrafps*"); do
-            perl -0pi -e 's/\s*if \(o\.graphicsMode\(\)\.get\(\) == GraphicsStatus\.FABULOUS\) \{.*?\n\s*\}\n/\n/s; s/\s*if \(tier >= 2 && cfg\.allowFastGraphics && !shader\) \{.*?\n\s*\}\n/\n/s; s/import net\.minecraft\.client\.GraphicsStatus;\n//' "$f"
-          done
+          python3 - <<'PY'
+          import glob
+          for f in glob.glob('**/Engine.java', recursive=True):
+              out, skip, depth = [], False, 0
+              for line in open(f).read().split('\n'):
+                  if skip:
+                      depth += line.count('{') - line.count('}')
+                      if depth <= 0:
+                          skip = False
+                      continue
+                  if 'GraphicsStatus' in line or 'graphicsMode' in line:
+                      if line.strip().startswith('if') and '{' in line:
+                          skip, depth = True, line.count('{') - line.count('}')
+                      continue
+                  out.append(line)
+              open(f, 'w').write('\n'.join(out))
+              print('cleaned', f)
+          PY
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
