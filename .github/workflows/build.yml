@@ -10,133 +10,10 @@ jobs:
           for z in $(find . -name "*.zip" -not -path "./.git/*"); do unzip -o "$z" -d "$(dirname "$z")"; done
           S=$(find . -name settings.gradle -not -path "./.git/*" | head -n1)
           echo "PROJECT_DIR=$(dirname "$S")" >> $GITHUB_ENV
-      - name: Replace Engine.java
+      - name: Fix code
         run: |
           for f in $(find . -name Engine.java -path "*ultrafps*"); do
-          cat > "$f" <<'EOF'
-          package com.ultrafps;
-
-          import net.fabricmc.loader.api.FabricLoader;
-          import net.minecraft.client.CloudStatus;
-          import net.minecraft.client.Minecraft;
-          import net.minecraft.client.OptionInstance;
-          import net.minecraft.client.Options;
-          import net.minecraft.client.ParticleStatus;
-          import org.slf4j.Logger;
-          import org.slf4j.LoggerFactory;
-
-          import java.util.Objects;
-
-          public final class Engine {
-              public static final Engine INSTANCE = new Engine();
-              private static final Logger LOG = LoggerFactory.getLogger("UltraFpsEngine");
-
-              private Config cfg = new Config();
-              private boolean disabled;
-              private int errors;
-              private boolean baseApplied;
-              private int tier;
-              private long frames;
-              private long lastNs;
-              private double avgMs;
-              private int simSnapshot = -1;
-              private CloudStatus cloudSnapshot;
-
-              public void init() {
-                  cfg = Config.load();
-                  FabricLoader fl = FabricLoader.getInstance();
-                  LOG.info("ULTRA FPS ENGINE started. Iris={} Sodium={}",
-                          fl.isModLoaded("iris"), fl.isModLoaded("sodium"));
-              }
-
-              public void onFrame(Minecraft mc) {
-                  if (disabled || mc.options == null) return;
-                  try {
-                      tick(mc);
-                  } catch (Throwable t) {
-                      if (++errors >= 3) {
-                          disabled = true;
-                          LOG.error("ULTRA FPS ENGINE disabled itself after repeated errors", t);
-                      }
-                  }
-              }
-
-              private void tick(Minecraft mc) {
-                  frames++;
-                  long now = System.nanoTime();
-                  if (mc.level == null || mc.getOverlay() != null) {
-                      lastNs = 0;
-                  } else {
-                      if (lastNs != 0) {
-                          double ms = (now - lastNs) / 1_000_000.0;
-                          avgMs = avgMs == 0 ? ms : avgMs * 0.98 + ms * 0.02;
-                      }
-                      lastNs = now;
-                  }
-
-                  if (!baseApplied) {
-                      if (mc.getOverlay() != null) return;
-                      simSnapshot = mc.options.simulationDistance().get();
-                      cloudSnapshot = mc.options.cloudStatus().get();
-                      apply(mc);
-                      baseApplied = true;
-                      return;
-                  }
-                  if (frames % 120 == 0) guard(mc);
-                  if (cfg.adaptive && frames % 900 == 0 && mc.level != null && avgMs > 0) {
-                      double fps = 1000.0 / avgMs;
-                      if (fps < cfg.targetFps && tier < 1) {
-                          tier++;
-                          LOG.info("Average FPS {} below target {}, tier {}", (int) fps, cfg.targetFps, tier);
-                          apply(mc);
-                          avgMs = 0;
-                      }
-                  }
-              }
-
-              private static <T> boolean put(OptionInstance<T> o, T v) {
-                  if (Objects.equals(o.get(), v)) return false;
-                  o.set(v);
-                  return true;
-              }
-
-              private void apply(Minecraft mc) {
-                  Options o = mc.options;
-                  boolean changed = false;
-
-                  changed |= put(o.ambientOcclusion(), false);
-                  changed |= put(o.entityShadows(), false);
-                  changed |= put(o.enableVsync(), false);
-                  changed |= put(o.biomeBlendRadius(), Math.min(o.biomeBlendRadius().get(), 1));
-                  if (o.particles().get() == ParticleStatus.ALL) {
-                      changed |= put(o.particles(), ParticleStatus.DECREASED);
-                  }
-
-                  if (tier >= 1) {
-                      changed |= put(o.particles(), ParticleStatus.MINIMAL);
-                      changed |= put(o.entityDistanceScaling(), Math.min(o.entityDistanceScaling().get(), 0.6));
-                  }
-
-                  changed |= guard(mc);
-                  if (changed) o.save();
-              }
-
-              private boolean guard(Minecraft mc) {
-                  Options o = mc.options;
-                  boolean changed = false;
-                  if (cfg.lockRenderDistance) changed |= put(o.renderDistance(), cfg.renderDistance);
-                  if (simSnapshot > 0 && o.simulationDistance().get() < simSnapshot) {
-                      changed |= put(o.simulationDistance(), simSnapshot);
-                  }
-                  if (cfg.lockClouds && cloudSnapshot != null && cloudSnapshot != CloudStatus.OFF
-                          && o.cloudStatus().get() == CloudStatus.OFF) {
-                      changed |= put(o.cloudStatus(), cloudSnapshot);
-                  }
-                  if (changed && frames % 120 == 0) mc.options.save();
-                  return changed;
-              }
-          }
-          EOF
+            perl -0pi -e 's/\s*if \(o\.graphicsMode\(\)\.get\(\) == GraphicsStatus\.FABULOUS\) \{.*?\n\s*\}\n/\n/s; s/\s*if \(tier >= 2 && cfg\.allowFastGraphics && !shader\) \{.*?\n\s*\}\n/\n/s; s/import net\.minecraft\.client\.GraphicsStatus;\n//' "$f"
           done
       - uses: actions/setup-java@v4
         with:
@@ -146,8 +23,9 @@ jobs:
         with:
           gradle-version: current
       - name: Build
-        run: gradle build --no-daemon
         working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          gradle build --no-daemon --console=plain > build.log 2>&1 || { grep -n "error:" build.log | head -20; exit 1; }
       - uses: actions/upload-artifact@v4
         with:
           name: ultra-fps-engine
