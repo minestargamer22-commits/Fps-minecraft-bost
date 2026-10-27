@@ -5,15 +5,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Find project
+        run: |
+          for z in $(find . -name "*.zip" -not -path "./.git/*"); do unzip -o "$z" -d "$(dirname "$z")"; done
+          S=$(find . -name settings.gradle -not -path "./.git/*" | head -n1)
+          echo "PROJECT_DIR=$(dirname "$S")" >> $GITHUB_ENV
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 21
       - uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: 9.2.0
-      - run: gradle build --no-daemon
+          gradle-version: 9.2.3
+      - name: Build
+        run: gradle build --no-daemon
+        working-directory: ${{ env.PROJECT_DIR }}
       - uses: actions/upload-artifact@v4
         with:
           name: ultra-fps-engine
-          path: build/libs/*.jar
+          path: ${{ env.PROJECT_DIR }}/build/libs/*.jar
