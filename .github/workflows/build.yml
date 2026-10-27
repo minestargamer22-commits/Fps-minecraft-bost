@@ -10,6 +10,12 @@ jobs:
           for z in $(find . -name "*.zip" -not -path "./.git/*"); do unzip -o "$z" -d "$(dirname "$z")"; done
           S=$(find . -name settings.gradle -not -path "./.git/*" | head -n1)
           echo "PROJECT_DIR=$(dirname "$S")" >> $GITHUB_ENV
+      - name: Fix code
+        run: |
+          for f in $(find . -name Engine.java -path "*ultrafps*"); do
+            perl -0pi -e 's/\s*if \(o\.graphicsMode\(\)\.get\(\) == GraphicsStatus\.FABULOUS\) \{.*?\n\s*\}\n/\n/s; s/\s*if \(tier >= 2 && cfg\.allowFastGraphics && !shader\) \{.*?\n\s*\}\n/\n/s; s/import net\.minecraft\.client\.GraphicsStatus;\n//' "$f"
+            grep -n "graphicsMode\|GraphicsStatus" "$f" || echo "clean: $f"
+          done
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
